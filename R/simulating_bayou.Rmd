@@ -1,0 +1,74 @@
+---
+title: "Simulating OU with bayou"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#setwd("Tb_ALEA/R") Expected location in the git repos
+library(bayou)
+```
+
+Load the tree. 
+
+```{r}
+tree <- read.nexus("../data/FritzTree.tre")
+tree <- multi2di(tree[[1]]) ##Not sure what the three trees are, we need to check the original manuscript
+```
+
+And data:
+
+```{r}
+clarke <- read.csv("../data//Clarke.csv")
+clarke[clarke=="*"] <- NA
+clarke$Species <- gsub(" ", "_", clarke$Species)
+td <- make.treedata(tree, clarke)
+```
+
+
+Define the parameters of the model. Let's have the shift happen after the split of the monotremes. 
+
+```{r}
+pars <- list()
+pars$alpha <- log(2)/30 # Phylogenetic half-life of 30 million years
+pars$sig2 <- 0.2 # dunno if this is reasonable...
+pars$k <- 1 # Number of shifts
+pars$ntheta <- 2 # 2 optima, the root state and the Mammalian optimum
+pars$theta <- c(29, 38) # Optima in degrees C
+```
+
+Now we need to identify the location of the shift. We can use `identifyBranches`, but has to be run interactively (not in code chunk, so set eval=FALSE). 
+
+```{r eval=FALSE}
+shifts <- identifyBranches(td$phy, n=1, plot.simmap = FALSE)
+```
+
+Now I'll hard code the location of the shift from what I got above. 
+
+```{r}
+shifts <- list()
+shifts$sb <- 1256
+shifts$loc <- 0
+shifts$t2 <- 2
+pars <- c(pars, shifts)
+```
+
+Check and see if we made the right map: 
+
+```{r}
+plotBayoupars(pars, td$phy, show.tip.label=FALSE)
+```
+
+Now simulate under the model: 
+
+```{r}
+dat <- bayou::dataSim(pars, tree=td$phy, model="OU", SE=0.2)
+```
+
+Notice how hard it is to keep the temp from going too high with this median value, while still getting the range below. This is why we might try BBMV. 
+
+
+
