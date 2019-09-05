@@ -10,6 +10,9 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 ```{r}
 #setwd("Tb_ALEA/R") Expected location in the git repos
 library(bayou)
+library(treeplyr)
+library(phylolm)
+library(phytools)
 ```
 
 Load the tree. 
@@ -26,6 +29,7 @@ clarke <- read.csv("../data//Clarke.csv")
 clarke[clarke=="*"] <- NA
 clarke$Species <- gsub(" ", "_", clarke$Species)
 td <- make.treedata(tree, clarke)
+td <- reorder(td, "postorder")
 ```
 
 
@@ -37,7 +41,7 @@ pars$alpha <- log(2)/30 # Phylogenetic half-life of 30 million years
 pars$sig2 <- 0.2 # dunno if this is reasonable...
 pars$k <- 1 # Number of shifts
 pars$ntheta <- 2 # 2 optima, the root state and the Mammalian optimum
-pars$theta <- c(29, 38) # Optima in degrees C
+pars$theta <- c(25, 38) # Optima in degrees C
 ```
 
 Now we need to identify the location of the shift. We can use `identifyBranches`, but has to be run interactively (not in code chunk, so set eval=FALSE). 
@@ -65,10 +69,153 @@ plotBayoupars(pars, td$phy, show.tip.label=FALSE)
 Now simulate under the model: 
 
 ```{r}
-dat <- bayou::dataSim(pars, tree=td$phy, model="OU", SE=0.2)
+dat <- bayou::dataSim(pars, tree=td$phy, model="OU", SE=0.5)
 ```
 
 Notice how hard it is to keep the temp from going too high with this median value, while still getting the range below. This is why we might try BBMV. 
 
+```{r}
+source("./plotting.R")
+plotContrasts(td$phy, dat$dat, show.tip.label=FALSE)
+```
+
+```{r}
+emat <- data.frame(node=td$phy$edge[,1], phytools::nodeHeights(td$phy))
+bsum <- group_by(emat, node) %>% summarize(., meanX1=mean(X1), meanX2=mean(X2), minX1=min(X1), minX2=min(X2))
+
+pics <- pic(dat$dat, td$phy)
+plot(bsum$meanX1, log(abs(pics)), xlab="Age of Node", ylab="Size of simulated contrast (i.e. rate)")
+```
+
+Average contrast size along path length of a tip estimated using the bayou-auteur model. 
+
+```{r}
+td$phy$edge.length[td$phy$edge.length==0] <- 0.001
+## Prior
+prior <- make.prior(td$phy, dists=list(dalpha="fixed", dsig2="dhalfcauchy", dsb="dsb", dk="cdpois", dtheta="dnorm", dloc="dunif"),
+                    param=list(dalpha="fixed", dsig2=list(scale=0.1), dk=list(lambda=500, kmax=1000), dtheta=list(mean=35, sd=10)),
+                    fixed=list(alpha=0)) 
+attributes(prior)$splitmergepars <- "sig2"
+
+## Get some starting parameters, this is what your input for your likelihood function will be:
+startpar <- pars
+startpar$alpha <- 0
+startpar$theta <- startpar$theta[1]
+startpar$sig2 <- rep(startpar$sig2, startpar$ntheta)
+#Test
+prior(startpar)
+
+## Fakish likelihood function, replace with your working version:
+## Precalculate some things:
+cache <- bayou:::.prepare.ou.univariate(td$phy, dat$dat)
+custom.lik <- function(pars, cache, X, model="Custom"){
+  phy <- cache$phy
+  ## Bayou's method of mapping shift locations onto branches and segments (vectorized version of simmap)
+  map <- bayou:::.pars2map(pars, cache)
+  ## Transform branch lengths by sig2
+  transfBL <- map$segs*pars$sig2[map$theta]
+  ## Replace branch lengths on the tree
+  phy$edge.length <- unname(tapply(transfBL, map$branch, sum))
+  ## Get residuals from the root value
+  X.c <- X - pars$theta
+  ## Make likelihood function, can be made a lot faster by precalculating the cache object
+  likfn <- geiger:::bm.lik(phy, X.c)
+  ## Give fixed parameters sig2=1 and a SE of 0
+  lnL <- likfn(c(1, 0))
+  return(list(loglik=lnL, theta=pars$theta, resid=X.c))
+}
+custom.lik(startpar, cache, dat$dat)$loglik
+
+monitorFn = function(i, lik, pr, pars, accept, accept.type, j){
+  names <- c("gen", "lnL", "prior", "sig2Root", "theta", "k")
+  string <- "%-8i%-8.2f%-8.2f%-8.2f%-8.2f%-8i"
+  acceptratios <- tapply(accept, accept.type, mean)
+  names <- c(names, names(acceptratios))
+  if(j==0){
+    cat(sprintf("%-7.7s", names), "\n", sep=" ")                           
+  }
+  cat(sprintf(string, i, lik, pr, pars$sig2[1], pars$theta, pars$k), sprintf("%-8.2f", acceptratios),"\n", sep="")
+}
+
+## Make bayou model object
+model.auteur <- list(moves = list(alpha="fixed", sig2=".vectorMultiplier", 
+                                   theta=".slidingWindowProposal", slide=".slide2",
+                                   k=".splitmergebd"
+                                   ),
+                      ## Relative proposal frequencies
+                      control.weights = list(alpha=0, sig2=20, theta=4, slide=2, k=10),
+                      ## Tuning parameters, note that you need 1 for each reversible jump parameter
+                      D = list(alpha=1, sig2=3, k=c(1), theta=6, slide=1),
+                      parorder = c("alpha","theta","k", "ntheta", "sig2"),
+                      rjpars = c("sig2"),
+                      shiftpars = c("sb", "loc", "t2"),
+                      monitor.fn = monitorFn,
+                      lik.fn = custom.lik)
 
 
+```
+
+
+```{r}
+closeAllConnections()
+mymcmc <- bayou.makeMCMC(td$phy, dat$dat, SE=0, model=model.auteur, prior=prior, startpar=startpar, outname="auteurtest009", plot.freq=NULL, ticker.freq=1000, samp = 100, perform.checks = FALSE)
+mymcmc$run(10000)
+```
+```{r}
+mymcmc$run(90000)
+```
+
+
+```{r}
+chain <- mymcmc$load()
+chain <- set.burnin(chain, 0.3)
+postburn <- floor(0.3*length(chain$gen)):length(chain$gen)
+plot(chain)
+```
+
+```{r}
+## Function to pull out the transformed branch lengths for MCMC sample:
+pullBL <- function(i, chain){
+  pars <- pull.pars(i, chain, model=model.auteur)
+  map <- bayou:::.pars2map(pars, cache)
+  transfBL <- map$segs*pars$sig2[map$theta]
+  cache$phy$edge.length <- unname(tapply(transfBL, map$branch, sum))
+  return(cache$phy)
+}
+
+## Get averaged transformed edge lengths:
+allBLs <- sapply(postburn, function(x) pullBL(x, chain)$edge.length)
+postmedBLs <- apply(allBLs, 1, mean)
+
+## Get all branches with a posterior probability above a certain cutoff:
+L <- Lposterior(chain, td$phy)
+sb <- which(L$pp > 0.3)
+pp <- list(k=length(sb), ntheta=length(sb)+1, sb=sb, loc=rep(0, length(sb)), t2=2:(length(sb)+1))
+tr <- pars2simmap(pp, td$phy)
+tr$tree$edge.length <- postmedBLs
+#pdf("~/Downloads/auteurRun.pdf", width=10, height=10)
+plotRegimes(tr$tree, cex=0.4, label.offset=0.01, show.tip.label=FALSE)
+tiplabels(pch=21, cex=(scale(dat$dat)+2)/4, bg="red", adj=c(0.5, 0.5))
+#dev.off()
+```
+
+
+
+```{r}
+tipEdges <- which(td$phy$edge[,2]  <= length(td$phy$tip.label))
+nH <- nodeHeights(tr$tree)
+tipRates <- nH[tipEdges,2]
+tipRates <- setNames(tipRates, tr$tree$tip.label[tr$tree$edge[tipEdges,2]])
+
+td$dat$tipRates <- tipRates[td$phy$tip.label]
+.td <- filter(td, !is.na(Ta))
+.td <- treeply(.td, function(x) drop.tip(.td$phy, c("Tachyglossus_aculeatus", "Zaglossus_bruijni", "Ornithorhynchus_anatinus")))
+
+plot(.td[['tipRates']], .td[['Ta']], pch=21, bg="gray80", col="gray80", xlab="Pathwise Rates (from bayou/auteur model)", ylab="Ta")
+lm1 <- phylolm(Ta~tipRates, data=.td$dat, phy=.td$phy, model="lambda")
+lm2 <- lm(Ta~tipRates, data=.td$dat)
+abline(lm1, col="blue")
+abline(lm2, col="red")
+summary(lm1)
+summary(lm2)
+```
