@@ -1,0 +1,48 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(BBMV)
+```
+
+```{r}
+#Reading in trees & data
+
+## bad fix rstudio being buggy with setwd() ... off to a good start
+mam_tree <- read.tree("~/Documents/ResponseSimulations/Tb/data/mamm.tre")
+plotTree(mam_tree)
+```
+
+```{r}
+# matching data and tree
+clarke <- read.csv("../data/Clarke.csv")
+clarke[clarke=="*"] <- NA
+clarke$Species <- gsub(" ", "_", clarke$Species)
+#comparing species list
+td <- make.treedata(mam_tree, clarke)
+td <- reorder(td, "postorder")
+
+td$phy
+```
+
+```{r}
+#Params
+x = seq(from=0, to =48, length.out = 100)
+bounds = c(min(x), max(x))
+
+#evolutionary potential eq
+V6=10*(x^4-0.5*(x^2)+0.*x)
+```
+
+```{r}
+#sigma  = 0.2 seemed a bit too weird, trying 0.3 and up 
+library(BBMV)
+Tb_trait = Sim_FPK(td$phy,x0=29,V=V6 ,sigma=0.3,bounds=bounds) 
+#bounds at 0 and 48
+
+hist(Tb_trait,breaks=20)
+summary(Tb_trait)
+```
+
