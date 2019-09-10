@@ -1,10 +1,13 @@
 ---
-title: "R Notebook"
+title: "simulating_BBMV"
+author: Nic Bone
 output: html_notebook
 ---
 
 ```{r}
-library(BBMV)
+require(BBMV)
+require(ape)
+require(phytools)
 ```
 
 ```{r}
@@ -17,32 +20,114 @@ plotTree(mam_tree)
 
 ```{r}
 # matching data and tree
-clarke <- read.csv("../data/Clarke.csv")
-clarke[clarke=="*"] <- NA
-clarke$Species <- gsub(" ", "_", clarke$Species)
-#comparing species list
-td <- make.treedata(mam_tree, clarke)
-td <- reorder(td, "postorder")
+mam_dat <- read.csv("../data/Clarke.csv")
 
+mam_dat[mam_dat=="*"] <- NA
+
+mam_dat <- mam_dat[complete.cases(mam_dat$Tb), ]
+
+mam_dat$Species <- gsub(" ", "_", mam_dat$Species)
+
+#comparing species list
+library(treeplyr)
+
+td <- make.treedata(mam_tree, mam_dat)
+
+td <- picante::match.phylo.data(td$phy, td$dat)
+
+td$phy <- multi2di(td$phy)
 td$phy
 ```
 
+
+
 ```{r}
 #Params
-x = seq(from=0, to =48, length.out = 100)
-bounds = c(min(x), max(x))
+random = seq(from=0, to=49, length =100)
+bounds = c(min(random), max(random))
+
 
 #evolutionary potential eq
-V6=10*(x^4-0.5*(x^2)+0.*x)
+
+#V6 = 10*(x^4-0.5*(x^2)+0.*x)
+
+#reverse of thermoregulation curve of enzyme
+x <- seq(20, 43.5, 0.1) + 273.15
+k <- 12.617e-5
+B0 <- 6
+
+V6 <- 1 - (B0 *(exp(-2.8/k*(1/x - 1/311.15)))/(1+ exp(9/k*(1/311.90-1/x))))
+
+plot(x-273.15, V6, xlim=c(25,45))
 ```
 
 ```{r}
-#sigma  = 0.2 seemed a bit too weird, trying 0.3 and up 
-library(BBMV)
-Tb_trait = Sim_FPK(td$phy,x0=29,V=V6 ,sigma=0.3,bounds=bounds) 
-#bounds at 0 and 48
+##sigma  = 0.2 seemed a bit too weird, trying 0.3 and up 
 
-hist(Tb_trait,breaks=20)
-summary(Tb_trait)
+library(BBMV)
+
+#tree_sim = sim.bdtree(stop='taxa',n=50)
+
+#tree_sim$edge.length=100*tree_sim$edge.length/max(branching.times(tree_sim))
+x_val <- c(from = 0.1, to = 1.0)
+
+
+for(i in x_val) {
+Tb_trait = Sim_FPK(td$phy, x0=29, V = V6 ,sigma = i, bounds=bounds) 
+hist(Tb_trait)
+}
+
+sigma = 2.3
+
+Tb_trait = Sim_FPK(td$phy, x0=29, V = V6 ,sigma = sigma, bounds=bounds) 
+```
+
+```{r}
+get_charac_time <- function(bounds, V, sigma){
+  dCoeff = log((sigma)^2/2)
+  dMat = BBMV::DiffMat_forward(V)
+  Npts = length(V)
+  vp = diag(dMat$diag)
+  Tc = (2 * (bounds[2] - bounds[1])^2/sigma^2)/(Npts - 1)^2/abs(sort(Re(vp), decreasing = T)[2])
+  return(Tc)
+}
+
+max(nodeHeights(td$phy))
+
+get_charac_time(bounds= bounds, V = V6, sigma=sigma)
+
+#bounds at 0 and 48
+```
+
+```{r}
+#Bounded macroevo landscape 
+
+
+library("BBMV")
+
+ll_FPK_BBMV=lnL_FPK(td$phy,Tb_trait,Npts=50,a=NULL,b=NULL,c=NULL) 
+
+fit_BBMV <- find.mle_FPK(model = ll_FPK_BBMV)
+
+get.landscape.FPK(fit=  fit_BBMV,xlab = ("Tb"))
+
+
+## OU models vvv
+
+#ll_FPK_OU=lnL_FPK(td$phy,Tb_trait,Npts=50,a=0,b=NULL,c=NULL)
+
+#fit_OU <- find.mle_FPK(model = ll_FPK2)
+
+#get.landscape.FPK(fit=fit_OU,xlab = expression(paste("Tb [",degree,"C]")), )
+
+```
+
+
+
+```{r}
+#We would expect all groups to be operating under that macroevolutionary landscape, but the rates to differ 
+
+testbFPK4= lnl_FPK_multiclades_same_V_different_sig2(trees=td$phy,traits=Tb_trait,a=NULL,b=NULL,c=NULL,Npts=50)
+
 ```
 
