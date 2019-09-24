@@ -1,0 +1,96 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ape)
+library(TreeSim)
+library(geiger)
+#tree <-  sim.bdtree(b=1, d=0, stop=c("taxa", "time"), n=100, t=4, seed=0, extinct=TRUE)
+data <- read.csv(file = "Tb/data/Clarke.csv")
+tree <- read.tree(file = "Tb/data/mamm.tre")
+branch <- tree$edge.length
+R <- matrix(c(1,0.8,0.8,1), nrow = 2,ncol=2,byrow = T)
+R
+
+Tb <- data$Tb
+BMR <- data$BMR.W.
+full <- data.frame(Tb, BMR)
+retree <- sim.char(tree,par=R,nsim = 15,model = "BM")
+
+retree <- data.frame(retree)
+td <- make.treedata(tree,retree)
+# correlated states
+state1 <- plot(td$dat$X1.1, td$dat$X2.1, xlab = "Tb", ylab= "BMR")
+new_BMR <- td$dat$X1.1
+new_Tb <- td$dat$X2.1
+branch <- td$phy$edge.length
+#something like this for the rates, since scalars are 1 
+rate1 <- plot(1,1, xlab="log(r_Tb)", ylab="log(r_BMR)")
+```
+
+
+```{r}
+td$phy$edge.length <- rgamma(6617,1.1,1)
+new_R <- matrix(c(1,0,0,1), nrow = 2, ncol=2, byrow = T)
+sim <- sim.char(td$phy, nsim=15, model = "BM",par = new_R)
+dat_sim <- sim[,,1]
+
+state2 <- plot(dat_sim[,1], dat_sim[,2], xlab="Tb", ylab="BMR")
+
+td$phy <- multi2di(td$phy)
+#this may or may not work depending on if geiger likes you
+pic_result <- pic(phy = td$phy, x=dat_sim[,1])
+
+#correlated rates
+rate2 <- plot(log(pic_result), log(pic_result), xlab = "log(r_Tb)", ylab = "log(r_BMR)")
+```
+
+
+```{r}
+#non-correlated states, correlated rates
+
+td$phy$edge.length <- rgamma(6617,1.1,1)
+R_2 <- matrix(c(1,0,0,1), nrow = 2, ncol=2, byrow = T)
+X <- sim.char(td$phy, nsim=15, model = "BM",par = new_R)
+X_dat <- X[,,1]
+
+#this one seems a bit suspicous 
+state3 <- plot(X_dat[,1], X_dat[,2], xlab="Tb", ylab="BMR")
+td$phy <- multi2di(td$phy)
+pic_result <- pic(phy = td$phy, x=dat_sim[,1], rescaled.tree = T )
+rate3 <- plot(pic_result$contr, pic_result$contr, xlab = "log(r_Tb)", ylab = "log(r_BMR")
+```
+
+```{r}
+library(phytools)
+#correlated states, non-correlated rates
+tree <- read.tree("Tb/data/mamm.tre")
+tree$edge.length <- rgamma(6617,1.1,1)
+tree1 <- tree
+X <- fastBM(tree1,sig2 = 1)
+X <- data.frame(X)
+plot(X$X)
+
+tree_temp <- read.tree("Tb/data/mamm.tre")
+tree_temp$edge.length <- rgamma(6617,1.1)
+tree2 <- tree_temp
+Z <- fastBM(tree2, sig2 = 4)
+Z <- data.frame(Z)
+plot(Z$Z)
+Y <- X$X + Z$Z
+Y <- data.frame(Y)
+
+
+
+fit <- lm(Y$Y~X$X)
+state4 <- plot(X$X,Y$Y) + abline(fit)
+
+
+tree <- multi2di(tree)
+pic_result_X <- pic(tree, x=X$X, rescaled.tree = T )
+pic_result_Y <- pic(tree, x=Z$Z, rescaled.tree = T)
+rate4n<- plot(pic_result_X$contr, pic_result_Y$contr)
+```
+
