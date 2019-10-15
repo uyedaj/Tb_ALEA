@@ -14,9 +14,7 @@ require(phytools)
 #Reading in trees & data
 
 mam_tree <- read.tree("~/Documents/ResponseSimulations/Tb/data/mamm.tre")
-```
 
-```{r}
 # matching data and tree
 mam_dat <- read.csv("../data/Clarke.csv")
 
@@ -37,7 +35,7 @@ td <- make.treedata(mam_tree, mam_dat)
 
 td <- picante::match.phylo.data(td$phy, td$dat)
 
-td$phy <- multi2di(td$phy)
+td$phy <- multi2di(td$phy, random = F)
 
 ```
 
@@ -60,7 +58,6 @@ plot(x-273.15, V6, xlim=c(25,45))
 
 
 ```{r}
-
 get_charac_time <- function(bounds, V, sigma){
   dCoeff = log((sigma)^2/2)
   dMat = BBMV::DiffMat_forward(V)
@@ -72,8 +69,7 @@ get_charac_time <- function(bounds, V, sigma){
 ```
 
 ```{r}
-x_val <- c(from = 0.1, to = 1.0)
-sigma = 2.66
+sigma = 3
 get_charac_time(bounds= bounds, V = V6, sigma=sigma)
 Tb_trait = Sim_FPK(td$phy, x0=25, V = V6 ,sigma = sigma, bounds=bounds) 
 hist(Tb_trait,breaks = 50)
@@ -92,9 +88,11 @@ fit_saved <- fit_BBMV
 
 ```{r}
 #saving the simulated tree and trait data
-write.tree(fit_saved$tree,file = "finaltree_BBMV")
-write.csv(fit_saved$trait, file= "trait_data_Tb")
-fit_saved$tree
+write.tree(fit_saved$tree,file = "finaltree_BBMV_10")
+write.csv(fit_saved$trait, file= "trait_data_Tb_10")
+plot(fit_saved$tree)
+fit_saved$trait
+corHMM:::
 ```
 
 
