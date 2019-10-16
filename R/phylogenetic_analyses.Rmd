@@ -1,0 +1,260 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+
+
+```{r}
+setwd("~/repos/Tb_ALEA/R/")
+require(bayou)
+require(OUwie)
+require(treeplyr)
+require(phylolm)
+#source("./R/utilityfunctions.R")
+```
+
+# Analysis of state and rate coupling in Birds
+
+## Preparing data
+
+### Birds
+```{r}
+## Read in a tree
+birdtree <- read.tree("../data/bird.tre")
+fristoe <- read.csv("../data/fristoe.csv")
+fristoe$genspec <- gsub(" ", "_", fristoe$Species)
+tdbird <- make.treedata(birdtree, fristoe)
+tdbird <- mutate(tdbird, lnBMR = log(BMR..mlO2.hour.,10), Tb=Tb...C., Ta=Tlc...C., lnMass=log(Mass..g.,10))
+pairs(dplyr::select(tdbird$dat, Tb, lnBMR, Ta))
+```
+
+### Mammals
+
+```{r}
+clarke <- read.csv("../data//Clarke.csv")
+clarke[clarke=="*"] <- NA
+clarke$Species <- gsub(" ", "_", clarke$Species)
+tree <- read.nexus("../data/FritzTree.tre")
+tdmamm <- make.treedata(tree[[1]], clarke)
+tdmamm <- filter(tdmamm, !is.na(Tb), !is.na(BMR.W.))
+tdmamm <- mutate(tdmamm, lnBMR=log(BMR.W.), lnMass=log(Bm.g.))
+pairs(dplyr::select(tdmamm$dat, Tb, lnBMR, Ta))
+```
+
+
+## Phylogenetic signal in Tb, Ta and BMR (+ mass-corrected BMR)
+
+### Birds
+
+```{r}
+## 
+physig_bird <- list()
+physig_bird$Tb <- phylolm(Tb ~ 1, data=tdbird$dat, phy=tdbird$phy, "OUfixedRoot")
+physig_bird$Ta <- phylolm(Ta ~ 1, data=tdbird$dat, phy=tdbird$phy, "OUfixedRoot")
+physig_bird$BMR <- phylolm(lnBMR ~ 1, data=tdbird$dat, phy=tdbird$phy, "OUfixedRoot")
+physig_bird$BMR.M <- phylolm(lnBMR ~ lnMass, data=tdbird$dat, phy=tdbird$phy, "OUfixedRoot")
+
+BM_bird <- list()
+BM_bird$Tb <- phylolm(Tb ~ 1, data=tdbird$dat, phy=tdbird$phy, "BM")
+BM_bird$Ta <- phylolm(Ta ~ 1, data=tdbird$dat, phy=tdbird$phy, "BM")
+BM_bird$BMR <- phylolm(lnBMR ~ 1, data=tdbird$dat, phy=tdbird$phy, "BM")
+BM_bird$BMR.M <- phylolm(lnBMR ~ lnMass, data=tdbird$dat, phy=tdbird$phy, "BM")
+
+TH_bird <- max(branching.times(tdbird$phy))
+cat("Phylogenetic half-live values (Prop. of Tree Height)\n")
+cat("Values near 0 indicate constraint \n and/or measurement error, and lack of phylogenetic signal \n")
+cat("Values near and above 1 BM-like evolution \n")
+sapply(physig_bird, function(x) (log(2)/x$optpar)/TH_bird)
+cat("Delta AIC in favor of the OU model \n")
+sapply(1:4, function(x) BM_bird[[x]]$aic - physig_bird[[x]]$aic)
+
+```
+
+### Mammals
+
+```{r}
+physig_mamm <- list()
+physig_mamm$Tb <- phylolm(Tb ~ 1, data=tdmamm$dat, phy=tdmamm$phy, "OUfixedRoot")
+physig_mamm$BMR <- phylolm(lnBMR ~ 1, data=tdmamm$dat, phy=tdmamm$phy, "OUfixedRoot")
+physig_mamm$BMR.M <- phylolm(lnBMR ~ lnMass, data=tdmamm$dat, phy=tdmamm$phy, "OUfixedRoot")
+tdmamm2 <- filter(tdmamm, !is.na(Ta))
+physig_mamm$Ta <- phylolm(Ta ~ 1, data=tdmamm2$dat, phy=tdmamm2$phy, "OUfixedRoot")
+TH_mamm <- max(branching.times(tdmamm$phy))
+
+BM_mamm <- list()
+BM_mamm$Tb <- phylolm(Tb ~ 1, data=tdmamm$dat, phy=tdmamm$phy, "BM")
+BM_mamm$BMR <- phylolm(lnBMR ~ 1, data=tdmamm$dat, phy=tdmamm$phy, "BM")
+BM_mamm$BMR.M <- phylolm(lnBMR ~ lnMass, data=tdmamm$dat, phy=tdmamm$phy, "BM")
+BM_mamm$Ta <- phylolm(Ta ~ 1, data=tdmamm2$dat, phy=tdmamm2$phy, "BM")
+
+cat("Phylogenetic half-live values (Prop. of Tree Height)\n")
+cat("Values near 0 indicate constraint \n and/or measurement error, and lack of phylogenetic signal \n")
+cat("Values near and above 1 BM-like evolution \n")
+sapply(physig_mamm, function(x) (log(2)/x$optpar)/TH_mamm)
+cat("Delta AIC in favor of the OU model \n")
+sapply(1:4, function(x) BM_mamm[[x]]$aic - physig_mamm[[x]]$aic)
+
+```
+
+We observe almost no phylogenetic signal for $T_b$, $T_a$ and mass-corrected $BMR$ in birds, and modest to low levels of phylogenetic signal for these variables in mammals. 
+
+# Phylogenetic model fitting
+
+## Are $Tb$ and $BMR$ correlated in state?
+### Birds
+
+```{r}
+mods <- c("BM", "OUfixedRoot", "OUrandomRoot", "EB")
+
+birdmods <- lapply(mods, function(x) phylolm(lnBMR~lnMass + Tb, data=tdbird$dat, phy=tdbird$phy, model=x))
+bird_aics <- sapply(birdmods, function(x) x$aic); names(bird_aics) <- mods
+cat("AIC values for models fit to birds (lnBMR ~ lnMass + Tb)\n")
+sort(bird_aics)
+```
+
+OU models fit substantially better for 
+```{r}
+bestmod_bird <- birdmods[which(bird_aics==min(bird_aics))]
+summary(bestmod_bird[[1]])
+```
+
+After accounting for variation due to mass, $BMR$ is marginally significantly and positively correlated with $Tb$ in birds. 
+
+### Mammals 
+
+```{r}
+mammmods <- lapply(mods, function(x) phylolm(lnBMR~lnMass + I(lnMass^2) + Tb, data=tdmamm$dat, phy=tdmamm$phy, model=x))
+mamm_aics <- sapply(mammmods, function(x) x$aic); names(mamm_aics) <- mods
+cat("AIC values for models fit to birds (lnBMR ~ lnMass + Tb)\n")
+sort(mamm_aics)
+```
+
+Again, OU models fit substantially better. 
+```{r}
+bestmod_mamm <- mammmods[which(mamm_aics==min(mamm_aics))]
+summary(bestmod_mamm[[1]])
+```
+
+There is a very highly significant positive correlation between $Tb$ and $lnBMR$ in mammals. 
+
+## Are $Tb$ and $Ta$ correlated in state?
+
+### Birds
+```{r}
+mods <- c("BM", "OUfixedRoot", "OUrandomRoot", "EB")
+
+birdmods <- lapply(mods, function(x) phylolm(Tb~Ta, data=tdbird$dat, phy=tdbird$phy, model=x))
+bird_aics <- sapply(birdmods, function(x) x$aic); names(bird_aics) <- mods
+cat("AIC values for models fit to birds (Tb ~ Ta)\n")
+sort(bird_aics)
+```
+
+```{r}
+bestmod_bird <- birdmods[which(bird_aics==min(bird_aics))]
+summary(bestmod_bird[[1]])
+```
+
+No correlation between $T_a$ and $T_b$ in birds. Again, variation in bird $T_b$ is small. 
+
+### Mammals
+```{r}
+mods <- c("BM", "OUfixedRoot", "OUrandomRoot", "EB")
+
+mammmods <- lapply(mods, function(x) phylolm(Tb~Ta, data=tdmamm2$dat, phy=tdmamm2$phy, model=x))
+mamm_aics <- sapply(mammmods, function(x) x$aic); names(mamm_aics) <- mods
+cat("AIC values for models fit to birds (Tb ~ Ta)\n")
+sort(mamm_aics)
+```
+
+```{r}
+bestmod_mamm <- mammmods[which(mamm_aics==min(mamm_aics))]
+summary(bestmod_mamm[[1]])
+```
+
+We observe a significant negative association between $T_b$ and $T_a$ consistent with counter-gradient selection. But substantial residual error exists. 
+
+## Are $Tb$ and $BMR$ correlated in rate?
+
+### Birds
+
+```{r}
+pic_bird <- list()
+
+
+pic_bird$lnBMR.M <- pic(resid(phylolm(tdbird[['lnBMR']]~tdbird[['lnMass']], phy=tdbird$phy)), phy=tdbird$phy)
+pic_bird$Ta <- pic(tdbird[['Ta']], phy=tdbird$phy)
+pic_bird$Tb <- pic(tdbird[['Tb']], phy=tdbird$phy)
+pic_bird <- do.call(data.frame, pic_bird)
+rate_bird <- as.data.frame(apply(pic_bird, 2, function(x) log(abs(x)+0.001)))
+
+pairs(rate_bird)
+```
+
+
+```{r}
+cat("Correlation between rates in Tb and lnBMR\n")
+cor.test(rate_bird$Tb, rate_bird$lnBMR.M)
+cat("Correlation between rates in Tb and Ta\n")
+cor.test(rate_bird$Tb, rate_bird$Ta)
+```
+
+Rates of evolution of the absolute log contrasts in $T_b$ and $lnBMR$ in birds is non-significant. 
+
+### Mammals
+
+```{r}
+pic_mamm <- list()
+tdmamm2$phy <- multi2di(tdmamm2$phy)
+
+pic_mamm$lnBMR.M <- pic(resid(phylolm(tdmamm2[['lnBMR']]~tdmamm2[['lnMass']]+ I(tdmamm2[['lnMass']]^2), phy=tdmamm2$phy)), phy=tdmamm2$phy)
+pic_mamm$Ta <- pic(tdmamm2[['Ta']], phy=tdmamm2$phy)
+pic_mamm$Tb <- pic(tdmamm2[['Tb']], phy=tdmamm2$phy)
+pic_mamm <- do.call(data.frame, pic_mamm)
+rate_mamm <- as.data.frame(apply(pic_mamm, 2, function(x) log(abs(x)+0.001)))
+
+pairs(do.call(data.frame, pic_mamm))
+
+```
+
+
+```{r}
+cat("Correlation between rates in Tb and lnBMR\n")
+cor.test(rate_mamm$Tb, rate_mamm$lnBMR)
+cat("Correlation between rates in Tb and Ta\n")
+cor.test(rate_mamm$Tb, rate_mamm$Ta)
+```
+
+We find a statistically significant but weak positive correlation between the contrasts of the residual rate variation between $T_b$ and $BMR$ but no correlation in the rate variation between $T_a$ and $T_b$. 
+
+# Why are rates correlated? Relationship between branch length and rate:
+
+```{r}
+par(mfrow=c(2,3))
+nH_bird <- branching.times(tdbird$phy)
+labels <- colnames(pic_bird)
+lapply(1:ncol(pic_bird), function(x){
+  plot(nH_bird, abs(pic_bird[[x]]), xlim=c(max(nH_bird), 0), main=labels[x], pch=21, 
+       col=bayou::makeTransparent("gray", 150), xlab="Node Height", ylab="PIC magnitude (abs(PIC))"); 
+  abline(lm(abs(pic_bird[[x]]) ~ nH_bird)) })
+
+nH_mamm <- branching.times(tdmamm2$phy)
+labels <- colnames(pic_mamm)
+lapply(1:ncol(pic_mamm), function(x){
+  plot(nH_mamm, abs(pic_mamm[[x]]), xlim=c(max(nH_mamm), 0), main=labels[x], pch=21,  
+       col=bayou::makeTransparent("gray", 150), xlab="Node Height", ylab="Contrast magnitude (abs(PIC))"); 
+  abline(lm(abs(pic_mamm[[x]]) ~ nH_mamm)) })
+```
+
+The highest rates are found near the tips of the tree, consistent with an OU model or a BM model with measurement/biological error (BM + Lambda). However, applying the VRRM model to these data will result in selection of what amounts to an Accelerating Change model (AC/DC model) which is not-identifiable from an OU model on ultrametric trees. This means that applying the VRRM will mimic an AC/DC model and be more likely to apply elevated rates to short branches on the tree rather than deep in the tree, where contrasts are low. This will result in spurious correlations between rate driven by short branch lengths, which could be shorter in some clades exacerbating the problem due to correlations between sampling biases/diversification and the environment. 
+
+
+```{r}
+saveRDS(tdbird, "../data/tdbird.rds")
+saveRDS(tdmamm, "../data/tdmamm.rds")
+saveRDS(pic_mamm, "../data/pic_mamm.rds")
+saveRDS(pic_bird, "../data/pic_bird.rds")
+```
+
