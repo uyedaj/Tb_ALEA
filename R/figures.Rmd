@@ -7,9 +7,14 @@ output: html_notebook
 library(ape)
 library(TreeSim)
 library(geiger)
+library(treeplyr)
+set.seed(1)
 #tree <-  sim.bdtree(b=1, d=0, stop=c("taxa", "time"), n=100, t=4, seed=0, extinct=TRUE)
-data <- read.csv(file = "Tb/data/Clarke.csv")
-tree <- read.tree(file = "Tb/data/mamm.tre")
+data <- read.csv(file = "../data/Clarke.csv")
+data$Species <- gsub(" ", "_", data$Species)
+tree <- read.nexus(file = "../data/FritzTree.tre")[[1]]
+tree <- multi2di(tree)
+td <- make.treedata(tree, data)
 branch <- tree$edge.length
 R <- matrix(c(1,0.8,0.8,1), nrow = 2,ncol=2,byrow = T)
 R
@@ -17,7 +22,7 @@ R
 Tb <- data$Tb
 BMR <- data$BMR.W.
 full <- data.frame(Tb, BMR)
-retree <- sim.char(tree,par=R,nsim = 15,model = "BM")
+retree <- sim.char(td$phy,par=R,nsim = 15,model = "BM")
 
 retree <- data.frame(retree)
 td <- make.treedata(tree,retree)
@@ -32,51 +37,45 @@ rate1 <- plot(1,1, xlab="log(r_Tb)", ylab="log(r_BMR)")
 
 
 ```{r}
-td$phy$edge.length <- rgamma(6617,1.1,1)
+set.seed(1)
+branch2 <- rgamma(nrow(td$phy$edge),1.1,1)
+simtree <- td$phy
+simtree$edge.length <- simtree$edge.length*branch2
 new_R <- matrix(c(1,0,0,1), nrow = 2, ncol=2, byrow = T)
-sim <- sim.char(td$phy, nsim=15, model = "BM",par = new_R)
+sim <- sim.char(simtree, nsim=15, model = "BM",par = new_R)
 dat_sim <- sim[,,1]
 
 state2 <- plot(dat_sim[,1], dat_sim[,2], xlab="Tb", ylab="BMR")
 
-td$phy <- multi2di(td$phy)
+#td$phy <- multi2di(td$phy)
 #this may or may not work depending on if geiger likes you
-pic_result <- pic(phy = td$phy, x=dat_sim[,1])
+
+pic_result1 <- pic(phy = td$phy, x=dat_sim[,1])
+pic_result2 <- pic(phy = td$phy, x=dat_sim[,2])
+plot(log(abs(pic_result1)), log(abs(pic_result2)))
+summary(lm0 <- lm(log(abs(pic_result2))~log(abs(pic_result1))))
+abline(lm0)
 
 #correlated rates
-rate2 <- plot(log(pic_result), log(pic_result), xlab = "log(r_Tb)", ylab = "log(r_BMR)")
+rate2 <- plot(branch2, branch2, xlab = "log(r_Tb)", ylab = "log(r_BMR)")
 ```
 
 
 ```{r}
-#non-correlated states, correlated rates
-
-td$phy$edge.length <- rgamma(6617,1.1,1)
-R_2 <- matrix(c(1,0,0,1), nrow = 2, ncol=2, byrow = T)
-X <- sim.char(td$phy, nsim=15, model = "BM",par = new_R)
-X_dat <- X[,,1]
-
-#this one seems a bit suspicous 
-state3 <- plot(X_dat[,1], X_dat[,2], xlab="Tb", ylab="BMR")
-td$phy <- multi2di(td$phy)
-pic_result <- pic(phy = td$phy, x=dat_sim[,1], rescaled.tree = T )
-rate3 <- plot(pic_result$contr, pic_result$contr, xlab = "log(r_Tb)", ylab = "log(r_BMR")
-```
-
-```{r}
+library(phylolm)
 library(phytools)
+set.seed(1)
 #correlated states, non-correlated rates
-tree <- read.tree("Tb/data/mamm.tre")
-tree$edge.length <- rgamma(6617,1.1,1)
-tree1 <- tree
-X <- fastBM(tree1,sig2 = 1)
+#tree <- read.tree("../data/mamm.tre")
+simtree1 <- simtree2 <- td$phy
+branch3 <- rgamma(nrow(simtree1$edge),10,10)
+branch4 <- rgamma(nrow(simtree2$edge),1.1,0.1)
+simtree1$edge.length <- branch3*simtree1$edge.length
+simtree2$edge.length <- branch4*simtree2$edge.length
+X <- fastBM(simtree1,sig2 = 1)
 X <- data.frame(X)
 plot(X$X)
-
-tree_temp <- read.tree("Tb/data/mamm.tre")
-tree_temp$edge.length <- rgamma(6617,1.1)
-tree2 <- tree_temp
-Z <- fastBM(tree2, sig2 = 4)
+Z <- fastBM(simtree2, sig2 = 1)
 Z <- data.frame(Z)
 plot(Z$Z)
 Y <- X$X + Z$Z
@@ -84,13 +83,140 @@ Y <- data.frame(Y)
 
 
 
-fit <- lm(Y$Y~X$X)
+fit <- phylolm(Y$Y~X$X, phy = td$phy, model = "BM")
 state4 <- plot(X$X,Y$Y) + abline(fit)
 
 
 tree <- multi2di(tree)
-pic_result_X <- pic(tree, x=X$X, rescaled.tree = T )
-pic_result_Y <- pic(tree, x=Z$Z, rescaled.tree = T)
-rate4n<- plot(pic_result_X$contr, pic_result_Y$contr)
+pic_result_X <- pic(td$phy, x=X$X)
+pic_result_Y <- pic(td$phy, x=Z$Z)
+plot(log(abs(pic_result_X)), log(abs(pic_result_Y)),  xlab = "log(r_Tb)", ylab = "log(r_BMR)")
+summary(lm00 <- lm(log(abs(pic_result_Y))~log(abs(pic_result_X))))
+abline(lm00)
+
+rate4n<- plot(log(abs(branch3)), log(abs(branch4)+abs(branch3)), xlab = "log(r_Tb)", ylab = "log(r_BMR)")
 ```
+
+```{r}
+library(igraph)
+library(diagram)
+library(phylolm)
+library(bayou)
+pdf("../Figure1.pdf", height=6.5, width=5)
+# Final Plot
+#Panel 1,1
+par(mfrow=c(4,3), mar=c(1,0.25,1,0.25), cex.lab=1.5)
+M1 <- matrix(c(0, 1, 0,0), nrow=2, ncol=2)
+plot(c(0,1), c(0, 1), type="n", bty="n", xaxt="n", yaxt="n", xlab="", ylab="", main="Model", cex.main=1.25)
+plotmat(M1, pos=rbind(c(.25,0.2), c(.75,0.2)), curve=0, box.type = "circle", box.size=0.1, name=c("Tb", "BMR"), add=TRUE, cex.txt=0, arr.pos=0.75, shadow.size = 0)
+M2 <- matrix(c(0, 0, 0, 0, 0, 0, 1, 1, 0), nrow=3, ncol=3)
+plotmat(M2, pos=rbind(c(.25,0.6), c(.75,0.6), c(0.5, 0.8)), curve=0, box.type = "circle", box.size=0.1, segment.from=0.3, segment.to=0.6, name=c("Tb", "BMR", "Z"), add=TRUE, cex.txt=0, arr.pos=0.6, shadow.size = 0)
+text(0.5, 0.45, labels="or", cex=1.5)
+box()
+#Panel 1,2
+col1 <- makeTransparent("#1abc9c",100)
+col2 <- makeTransparent("#34495e",255)
+col3 <- makeTransparent("#e67e22",100)
+col4 <- makeTransparent("#c0392b", 255)
+par(mar=c(2,2,1,0.25), mgp=c(0.3,0.05,0.05))
+plot(td$dat$X1.1, td$dat$X2.1, xlab = "Tb", ylab= "BMR", xaxt="n", yaxt="n", pch=21, bg=col1, col=NULL, cex=1.5, main="States", cex.main=1.25)
+tree1 <- td$phy
+tree1$edge.length <- branch
+plm1 <- phylolm(X2.1~X1.1,dat=td$dat, phy=tree1, model="BM")
+abline(plm1, lty=2, lwd=3, col=col2)
+#Panel 1,3
+plot(1,1, xlab="log(r_Tb)", ylab="log(r_BMR)",xaxt="n", yaxt="n", cex=2, pch=21, bg=col3, col=NULL, main="Rates", cex.main=1.25)
+#abline(1,0, lwd=3, lty=2, col=col4)
+
+########ROW 2###########
+par(mar=c(1.5,0.25,0.5,0.25), cex.lab=1.5)
+plot(c(0,1), c(0, 1), type="n", bty="n", xaxt="n", yaxt="n", xlab="", ylab="")
+M3 <- matrix(c(0, 0, 0, 0, 0, 0, 1, 1, 0), nrow=3, ncol=3)
+plotmat(M3, pos=rbind(c(0.25,0.35), c(.75,0.35), c(0.5, 0.65)), curve=0, box.type = "circle", box.size=0.1, segment.from=0.3, segment.to=0.6, name=c("Tb", "BMR", "Z"), add=TRUE, cex.txt=0, arr.pos=0.6, shadow.size = 0, arr.lcol = "#e74c3c", arr.col="#e74c3c", box.lcol=c(1,1,"#e74c3c"))
+box()
+#Panel 1,2
+par(mar=c(2.5,2,0.5,0.25), mgp=c(0.3,0.05,0.05))
+plot(dat_sim[,1], dat_sim[,2], xlab="Tb", ylab="BMR", xaxt="n", yaxt="n", pch=21, bg=col1, col=NULL, cex=1.5)
+tree2 <- td$phy
+tree2$edge.length <- branch2
+plm2 <- phylolm(dat_sim[,2]~dat_sim[,1], phy=tree2, model="BM")
+abline(plm2, lty=2, lwd=3, col=col2)
+#Panel 1,3
+plot(log(abs(branch2)), log(abs(branch2)), xlab = "log(r_Tb)", ylab = "log(r_BMR)",xaxt="n", yaxt="n", cex=2, pch=21, bg=col3, col=NULL)
+abline(0,1, lwd=3, lty=2, col=col4)
+
+
+########ROW 3###########
+
+par(mar=c(1.5,0.25,0.5,0.25), cex.lab=1.5)
+plot(c(0,1), c(0, 1), type="n", bty="n", xaxt="n", yaxt="n", xlab="", ylab="")
+M3 <- matrix(c(0, 1, 0, 0, 0, 0, 0, 2, 0), nrow=3, ncol=3)
+colmat1 <- M3
+colmat1[colmat1 !=0] <- c("#e74c3c", "#8e44ad")[colmat1]
+plotmat(M3, pos=rbind(c(0.2,0.3), c(.55,0.3), c(0.8, 0.7)), curve=0, box.type = "circle", box.size=0.1, segment.from=0.1, segment.to=0.8, name=c("Tb", "BMR", "Z"), add=TRUE, cex.txt=0, arr.pos=0.65, shadow.size = 0, arr.lcol = colmat1, arr.col=colmat1, box.lcol=c("#e74c3c",1,"#8e44ad"))
+box()
+#Panel 1,2
+par(mar=c(2.5,2,0.5,0.25), mgp=c(0.3,0.05,0.05))
+plot(X$X,Y$Y, xlab="Tb", ylab="BMR", xaxt="n", yaxt="n", pch=21, bg=col1, col=NULL, cex=1.5) 
+abline(fit, lty=2, lwd=3, col=col2)
+
+#Panel 1,3
+plot(log(abs(branch3)), log(abs(branch3+branch4)), xlab = "log(r_Tb)", ylab = "log(r_BMR)",xaxt="n", yaxt="n", cex=2, pch=21, bg=col3, col=NULL)
+rlm1 <- lm( I(log(abs(branch3) + abs(branch4))) ~  log(abs(branch3)))
+abline(rlm1, lwd=3, lty=2, col=col4)
+summary(rlm1)
+
+###########Row 4###################
+#Panel 4,1 Empirical data
+par(mar=c(1.5,0.25,0.5,0.25), cex.lab=1.5)
+plot(c(0,1), c(0, 1), type="n", bty="n", xaxt="n", yaxt="n", xlab="", ylab="")
+text(0.5, 0.9, "Empirical Data", cex=1.5, pos=1)
+points(0.25, 0.6, pch=21, bg=colm, col=NULL, cex=2.5)
+points(0.25, 0.45, pch=21, bg=colb, col=NULL, cex=2.5)
+text(c(0.3, 0.3), c(0.6, 0.45), labels=c("Mammals", "Birds"), cex=1.5, pos=4)
+
+box()
+
+
+colm <- makeTransparent("#9b59b6", 100) 
+colb <- makeTransparent("#3498db", 100)
+tdbird <- readRDS("../data/tdbird.rds")
+tdmamm <- readRDS("../data/tdmamm.rds")
+pic_bird <- readRDS("../data/pic_bird.rds")
+pic_mamm <- readRDS("../data/pic_mamm.rds")
+
+par(mar=c(2.5,2,0.5,0.25), mgp=c(0.3,0.05,0.05))
+rBMRmamm <- resid(phylolm(lnBMR ~ lnMass + I(lnMass^2), data=tdmamm$dat, phy=tdmamm$phy, model="OUfixedRoot"))
+rBMRbird <- resid(phylolm(lnBMR ~ lnMass, data=tdbird$dat, phy=tdbird$phy, model="OUfixedRoot"))
+
+lmmamm <- phylolm(rBMRmamm ~ tdmamm$dat$Tb, phy=tdmamm$phy, model="OUfixedRoot")
+lmbird <- phylolm(rBMRbird ~ tdbird$dat$Tb, phy=tdbird$phy, model="OUfixedRoot")
+
+plot(tdmamm[['Tb']], rBMRmamm, xaxt="n", yaxt="n", pch=21, bg=colm, col=NULL, cex=1.5, xlim=c(29, 43.5), ylim=c(-1.275, 1.7), 
+     xlab="Tb", ylab="BMR")
+points(tdbird[['Tb']], rBMRbird, col=NULL, bg=colb, cex=1.5, pch=21)
+abline(lmmamm, lty=2, lwd=3, col="#9b59b6")
+abline(lmbird, lty=2, lwd=3, col="#3498db")
+text(c(36, 36), c(-0.9, -1.2), labels=c("p < 0.001", "p = 0.057"), cex=1.2, col=c("#9b59b6","#3498db"), pos = 4)
+
+## Panel 3
+dev <- 0.001
+x_mamm <- log(abs(pic_mamm$Tb+dev))
+y_mamm <- log(abs(pic_mamm$lnBMR.M+dev))
+x_bird <- log(abs(pic_bird$Tb+dev))
+y_bird <- log(abs(pic_bird$lnBMR.M+dev))
+mamm_rates <- data.frame(Tb=x_mamm, BMR=y_mamm)# %>% filter(., is.finite(Tb), is.finite(BMR))
+bird_rates <- data.frame(Tb=x_bird, BMR=y_bird)# %>% filter(., is.finite(Tb), is.finite(BMR))
+mamm_lm <- lm(BMR ~ Tb, data=mamm_rates)
+bird_lm <- lm(BMR ~ Tb, data=bird_rates)
+plot(log(abs(pic_mamm$Tb)), log(abs(pic_mamm$lnBMR.M)), xlab = "log(|PIC(Tb)|)", ylab = "log(|PIC(BMR)|)",xaxt="n", yaxt="n", cex=1.5, pch=21, bg=colm, col=NULL, ylim=c(-10, 1), xlim=c(-10,1))
+points(log(abs(pic_bird$Tb)), log(abs(pic_bird$lnBMR.M)), xlab="log(|PIC(Tb)|)",  ylab = "log(|PIC(BMR)|)", , cex=1.5, pch=21, bg=colb, col=NULL)
+abline(mamm_lm, lty=2, lwd=3, col="#9b59b6")
+abline(bird_lm, lty=2, lwd=3, col="#3498db")
+text(c(-10, -10), c(-8.5, -9.75), labels=c("p < 0.10", "p > 0.10"), cex=1.2, col=c("#9b59b6","#3498db"), pos=4)
+dev.off()
+```
+
+
+
 
