@@ -60,7 +60,7 @@ td <- make.treedata(tree, data)
 td <- reorder(td, "postorder")
 ```
 
-We will simulate scenarios under the Fritz mammal phylogeny. Rate variation will be drawn from the following prior distribution generated in the R package bayou. This is done primarily to draw a distribution fo shift locations. The number of shifts is drawn from a uniform distribution with a minimum of 0 and a maximum equal to the number of branches. Shifts are placed on randomly selected branches, with corresponding scalar being inherited by all descendent branches until another shift is encountered, or a tip is reached.
+We will simulate scenarios with the Fritz mammal phylogeny. Rate variation will be drawn from the following prior distribution generated in the R package bayou. This is done primarily to draw a distribution for shift locations. The number of shifts is drawn from a uniform distribution with a minimum of 0 and a maximum equal to the number of branches. Shifts are placed on randomly selected branches, with corresponding scalar being inherited by all descendent branches until another shift is encountered, or a tip is reached.
 
 ```{r}
 priorX <- make.prior(td$phy, dists=list(dalpha="fixed", dsig2="dgamma", dsb="dsb", dk="ddunif", dtheta="dnorm", dloc="dloc"),
