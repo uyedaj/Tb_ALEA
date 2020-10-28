@@ -1,0 +1,122 @@
+---
+title: "Contrast correlation simulations"
+author: "Josef Uyeda"
+date: "10/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Simulation study of contrast correlations as a visualization of rate variation
+
+Here we conduct a small simulation study to demonstrate that correlation in the absolute value of contrasts carries meaningful information about shared rate variation to validate our visualization technique in Figure 1. Note that we do not intend this to replace the full analysis by ALEA, but merely demonstrates that there is some signal for rate correlation, though we do not dispute that the evidence for this correlation is relatively weak, as expected under Scenario 3. 
+
+## Simulation conditions
+
+We begin by loading the necessary libraries, data and functions.
+
+```{r}
+library(ape)
+library(TreeSim)
+library(geiger)
+library(treeplyr)
+library(bayou)
+
+transfBL <- function(pars, tree){
+  dat <- rep(0, length(tree$tip.label)); names(dat) <- tree$tip.label#Dummy data, will simulate later
+  cache <- bayou:::.prepare.ou.univariate(tree, dat, SE=0)
+  phy <- cache$phy
+  ## Bayou's method of mapping shift locations onto branches and segments (vectorized version of simmap)
+  map <- bayou:::.pars2map(pars, cache)
+  ## Transform branch lengths by sig2
+  transfBL <- map$segs*pars$sig2[map$theta]
+  ## Replace branch lengths on the tree
+  phy$edge.length <- unname(tapply(transfBL, map$branch, sum))
+  return(phy)
+}
+
+ddunif <-function(x, min, max, log){
+  dens <- ifelse(x>=min & x<=max & round(x)==x,1/(max-min),0)
+  if(log){
+    return(log(dens))
+  } else {
+    return(dens)
+  }
+}
+rdunif <- function(x, min, max, log){
+  sample(min:max, x, replace=TRUE)
+}
+
+data <- read.csv(file = "../data/Clarke.csv")
+data$Species <- gsub(" ", "_", data$Species)
+tree <- read.nexus(file = "../data/FritzTree.tre")[[1]]
+tree <- multi2di(tree)
+tree$edge.length[tree$edge.length< 0.01] <- 0.01
+tree <- phytools::force.ultrametric(tree, method="extend")
+tree <- reorder.phylo(tree, "postorder")
+td <- make.treedata(tree, data)
+td <- reorder(td, "postorder")
+```
+
+We will simulate scenarios under the Fritz mammal phylogeny. Rate variation will be drawn from the following prior distribution generated in the R package bayou. This is done primarily to draw a distribution fo shift locations. The number of shifts is drawn from a uniform distribution with a minimum of 0 and a maximum equal to the number of branches. Shifts are placed on randomly selected branches, with corresponding scalar being inherited by all descendent branches until another shift is encountered, or a tip is reached.
+
+```{r}
+priorX <- make.prior(td$phy, dists=list(dalpha="fixed", dsig2="dgamma", dsb="dsb", dk="ddunif", dtheta="dnorm", dloc="dloc"),
+                     param=list(dalpha="fixed", dsig2=list(shape=10,rate=10), dk=list(min=0, max=nrow(td$phy$edge)), dtheta=list(mean=0, sd=5)),
+                    fixed=list(alpha=0), plot=FALSE)
+```
+
+We simulate correlated log rate scalars with shared shift locations by drawing from a normal distribution with mean 1.5 and variance of 1.5, to generate a range of rate values that spans ~ 5 units wide ranging from -1 to 4, to roughly match the range of values found in ALEA Figure 3. We take the asymmetric nature of these scalars to indicate that rates usually increase toward the tips, corresponding to the OU-like evolution of these traits and clades. We use the approximate values of sigma^2 to simulate each Brownian Motion process using the approximate values found for mass-corrected metabolic rate (X) and body temperature (Y) for mammals, although these values are largely irrelevant for this analysis. We simulate rate unique rate scalars from a multivariate normal distribution with correlation rho, which we vary from 0 to 1 in 0.1 unit increments, with 50 simulations per value. Note that because rate scalars may affect multiple branches per value. Thus, the realized correlation in branch rates will be reweighted by their distribution across the tree and will not be the same as the simulated value. We therefore record the realized rate correlation in branch rates. 
+
+```{r eval=FALSE}
+rho <- sort(rep(seq(0,1, length.out=11), 50)) # 50 simulations per value of correlation
+sigR <- 1.5 #Variance of the log branch rate scalars
+muR <- 1.5 #Mean of the log branch rate scalars
+RES <- list() #To save results
+for(i in 1:length(rho)){
+  pars1 <- priorSim(priorX, td$phy, shiftpars="sig2", plot=FALSE)$pars[[1]] #Draw from the prior distribution to get a map of shifts
+  rates <- rmvnorm(pars1$ntheta, rep(muR, 2), matrix(c(sigR,rho[i]*sigR, rho[i]*sigR,sigR), nrow=2)) #Draw correlated rates
+  pars1$sig2 <- exp(rates[,1]) #reassign rates for X
+  pars2 <- pars1; pars2$sig2 <- exp(rates[,2]) #reassign rates for Y
+  simtree1 <- transfBL(pars1,td$phy) #Generate tree with corresponding shifts and branch rates
+  simtree2 <- transfBL(pars2,td$phy) #Generate tree with corresponding shifts and branch rates
+  branch3 <- (simtree1$edge.length/td$phy$edge.length) #Get branch-specific sigma^2 values for X
+  branch4 <- (simtree2$edge.length/td$phy$edge.length) #Get branch-specific sigma^2 values for Y
+  X <- fastBM(simtree1, sig2 = 0.005, a=pars1$theta)#mass corrected lnBMR overall BM rate
+  X <- data.frame(X)
+  Y <- fastBM(simtree2, sig2 = 0.09, a=pars2$theta)#Tb overall BM rate
+  Y <- data.frame(Y)
+  pic_result_X <- pic(td$phy, x=X$X) #Calculate pics
+  pic_result_Y <- pic(td$phy, x=Y$Y) #Calculate pics
+  RES$X[[i]] <- X$X #save results
+  RES$Y[[i]] <- Y$Y #save results
+  RES$slm0[[i]] <- cor.test(log(abs(pic_result_Y)),log(abs(pic_result_X)))
+  RES$slmT0[[i]] <- cor.test(log(abs(branch4)),log(abs(branch3)))
+}
+saveRDS(RES, "../output/contrast_correlations.rds")
+```
+
+After running the simulations, we can collate the results into a figure.
+
+```{r}
+RES <- readRDS("../output/contrast_correlations.rds")
+coef0 <- sapply(RES$slm0, function(x) x$estimate)
+coefT0 <- sapply(RES$slmT0, function(x) x$estimate)
+sig0 <- sapply(RES$slm0, function (x) x$p.value)
+sigT0 <- sapply(RES$slmT0, function (x) x$p.value)
+
+
+plot(coefT0, coef0, pch=21, bg=sig0<0.05, col=as.numeric(sigT0<0.05)+1, lwd=2, xlab="Simulated/Realized rate correlation", ylab="Estimated Correlation in Contrasts")
+abline(h=0.1011089, lty=2)
+text(-0.8, 0.1011089+0.015, label="Mammal obs.", cex=1, pos=4)#Observed correlation in mammals
+abline(h=0.03799077, lty=2)
+text(-0.8, 0.03799077+0.015, label="Aves obs.", cex=1, pos=4)#Observed correlation in birds
+legend(-0.8, 0.425, pch=c(21,21,21), pt.bg=c(0,0,1), col=c(1,2,1), legend=c("True rates nonsig.", "True rates sig.", "Contrasts sig."), pt.cex=1.25)
+
+```
+
+Supplementary Figure 1. Simulated values of contrast correlations from phylogenetically-distributed rate scalars demonstrates reasonable power to detect significant relationships between rates directly from contrasts in the presence of rate variation. Open circles indicate that the contrast Pearson-correlation coefficient was non-significant, whereas filled black circles indicate it is significantly correlated in X and Y. Red outlines indicate that the true correlation coefficient among branch rates are significant, whereas black outlines indicate even with perfect knowledge of the branch rates, the obesrved correlation was non-significant. Observed values from the empirical data are shown, while note that the data are simulated to match the Mammalian, not bird data.
+
+
