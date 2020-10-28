@@ -1,3 +1,8 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
 # How should functional relationships be evaluated usingphylogenetic comparative methods? A case study using metabolicrate and body temperature
 
 This repository contains code and data to reproduce all analyses in our note response letter "How should functional relationships be evaluated usingphylogenetic comparative methods? A case study using metabolicrate and body temperature". As background, our case study re-examines the results of the article entitled: [The decoupled nature of basal metabolic rate and body temperature in endotherm evolution].(https://www.nature.com/articles/s41586-019-1476-9).  
@@ -26,7 +31,7 @@ To generate Figure 1 in our manuscript, we use simulations of causal models that
 ### II.B Empirical rate correlations
 To validate that our approach for evaluating evidence or signal for rate correlations can detect shared rate heterogeneity to compare to the Variable-Rates Regression Model, we performed a correlation test on the log absolute contrasts for lnBMR and T<sub>b</sub>. Code and methods for performing this are presented [in the following document](https://github.com/uyedaj/Tb_ALEA/blob/master/R/simulating_contrast_correlations.Rmd). In brief, we simulated 50 replicates for 11 values of correlation (over a sequence of values from 0 to 1 by 0.1 units) between rate scalars, for a total of 550 simulations. We used the R package bayou to simulate shift locations with from a uniform distribution from 0 to the number of branches in the Fritz et al. mammal phylogeny. We then drew log rate scalars from a multivariate normal distribution with mean = (1.5, 1.5) and variances = (1.5, 1.5). These rate scalars were then exponentiated and mapped onto the shift locations to generate a phylogeny upon which independent Brownian Motion processes were used to simulate X and Y. The contrasts of these traits were then calculated on the original phylogeny, and the Pearson-correlation coefqficient was calculated. Because the branch scalars are reweighted number of branches that inherit their values, the exact correlation of the simulated values will not match the value used to simulate from the multivariate normal distribution. We therefore reestimate this value from the true rate scalars. We find that rate correlations of the magnitude we observed for mammals correspond to weak or moderate levels of evolutionary correlation (see below). 
 
-![](https://github.com/uyedaj/Tb_ALEA/blob/master/output/contrastcorrelation.png)
+![](contrastcorrelation.png)
 
 Supplementary Figure 1. Simulated values of contrast correlations from phylogenetically-distributed rate scalars demonstrates reasonable power to detect significant relationships between rates directly from contrasts in the presence of rate variation. Open circles indicate that the contrast Pearson-correlation coefficient was non-significant, whereas filled black circles indicate it is significantly correlated in X and Y. Red outlines indicate that the true correlation coefficient among branch rates are significant, whereas black outlines indicate even with perfect knowledge of the branch rates, the obesrved correlation was non-significant. Observed values from the empirical data are shown, while note that the data are simulated to match the Mammalian, not bird data.
 
