@@ -1,6 +1,6 @@
 # How should functional relationships be evaluated using phylogenetic comparative methods? A case study using metabolic rate and body temperature
 
-This repository contains code and data to reproduce all analyses in our note "How should functional relationships be evaluated using phylogenetic comparative methods? A case study using metabolicrate and body temperature". In this paper, we ask how one should choose which methods to use to test for trait associations. To examine this question, we choose a case study that re-examines the results of the article entitled: [The decoupled nature of basal metabolic rate and body temperature in endotherm evolution].(https://www.nature.com/articles/s41586-019-1476-9).  
+This repository contains code and data to reproduce all analyses in our note "How should functional relationships be evaluated using phylogenetic comparative methods? A case study using metabolic rate and body temperature". In this paper, we ask how one should choose which methods to use to test for trait associations. To examine this question, we choose a case study that re-examines the results of the article entitled: [The decoupled nature of basal metabolic rate and body temperature in endotherm evolution].(https://www.nature.com/articles/s41586-019-1476-9).  
 
 ## Supplementary methods
 ### I. Phylogenetic analyses
